@@ -270,14 +270,41 @@ function ODataValidationHandler:parse_json_specification(json_spec)
     -- Process schema definitions
     for namespace, schema in pairs(parsed_json) do
         if type(schema) == "table" and namespace ~= "$Version" and namespace ~= "$Reference" then
-            -- Process entity types
+            -- First process complex types
+            for typename, typedef in pairs(schema) do
+                if type(typedef) == "table" and typedef["$Kind"] == "ComplexType" then
+                    local entity = {
+                        Name = typename,
+                        Properties = {},
+                        IsComplexType = true,
+                        Namespace = namespace
+                    }
+
+                    -- Process properties
+                    for propname, propdef in pairs(typedef) do
+                        if type(propdef) == "table" and propname ~= "$Kind" then
+                            table.insert(entity.Properties, {
+                                Name = propname,
+                                Type = propdef["$Type"] or "Edm.String",
+                                Required = not (propdef["$Nullable"] or false),
+                                IsNavigation = false
+                            })
+                        end
+                    end
+
+                    table.insert(spec, entity)
+                end
+            end
+
+            -- Then process entity types
             for typename, typedef in pairs(schema) do
                 if type(typedef) == "table" and typedef["$Kind"] == "EntityType" then
                     local entity = {
                         Name = typename,
                         Properties = {},
                         Key = typedef["$Key"] or {},
-                        IsComplexType = false
+                        IsComplexType = false,
+                        Namespace = namespace
                     }
 
                     -- Process properties

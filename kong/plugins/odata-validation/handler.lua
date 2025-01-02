@@ -78,7 +78,10 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
   end
 
   local spec = {}
-  local schemas = document:search("edmx:Edmx/edmx:DataServices/Schema")
+  -- Use the correct namespace prefix in the XPath query
+  local schemas = document:search("//edmx:Schema", {
+    edmx = "http://docs.oasis-open.org/odata/ns/edm"
+  })
   if not schemas or #schemas == 0 then
     kong.log.err("No schemas found in the OData specification")
     return nil, "No schemas found"

@@ -81,11 +81,11 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
   -- Define the namespaces used in the document
   local namespaces = {
     edmx = "http://docs.oasis-open.org/odata/ns/edmx",
-    edm = "http://docs.oasis-open.org/odata/ns/edm"
+    default = "http://docs.oasis-open.org/odata/ns/edm"
   }
 
   -- Use the correct namespace prefix in the XPath query
-  local schemas = document:search("//edmx:DataServices/edm:Schema", namespaces)
+  local schemas = document:search("//edmx:DataServices/*[local-name()='Schema']", namespaces)
   if not schemas or #schemas == 0 then
     kong.log.err("No schemas found in the OData specification")
     return nil, "No schemas found"

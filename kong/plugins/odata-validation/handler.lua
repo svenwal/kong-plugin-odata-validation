@@ -9,6 +9,22 @@ local ODataValidationHandler = {
 -- Add to the top with other local declarations
 local enum_types = {}
 
+-- Add basic_type_mapping as a local variable at the top
+local basic_type_mapping = {
+  ["Edm.Int32"] = "number",
+  ["Edm.String"] = "string",
+  ["Edm.Decimal"] = "number",
+  ["Edm.Boolean"] = "boolean",
+  ["Edm.Date"] = "string",
+  ["Edm.DateTimeOffset"] = "string",
+  ["Edm.Int64"] = "number",
+  ["Edm.Single"] = "number",
+  ["Edm.Double"] = "number",
+  ["Edm.Guid"] = "string",
+  ["Edm.Duration"] = "string",
+  ["Edm.GeographyPoint"] = "table"
+}
+
 function ODataValidationHandler:access(conf)
   -- Capture request metadata and body
   local request_method = kong.request.get_method()
@@ -160,35 +176,17 @@ function ODataValidationHandler:validate_entity(value, entityType, spec)
       -- Handle regular and complex type properties
       local expectedType = self:map_odata_type_to_lua(property.Type, entityType.Namespace)
       
-      -- Special handling for enum types
-      if enum_types[property.Type] then
-        if type(propValue) ~= "string" then
-          kong.log.err("Enum value must be a string for ", property.Name)
-          return false, "Field " .. property.Name .. " must be a string enum value"
-        end
-        
-        -- Check if the value is valid for this enum
-        if not enum_types[property.Type].values[propValue] then
-          local valid_values = {}
-          for val, _ in pairs(enum_types[property.Type].values) do
-            table.insert(valid_values, val)
-          end
-          kong.log.err("Invalid enum value for ", property.Name, ": ", propValue)
-          return false, "Field " .. property.Name .. " must be one of: " .. table.concat(valid_values, ", ")
-        end
-      else
-        -- Regular type validation
-        if type(propValue) ~= expectedType then
-          kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(propValue))
-          return false, "Field " .. property.Name .. " must be of type " .. property.Type
-        end
-      end
-
-      -- If it's a complex type, validate its structure
-      if expectedType == "table" then
+      -- Skip basic type validation for complex types and enums
+      if not basic_type_mapping[property.Type] then
         local valid, err = self:validate_complex_value(propValue, property.Type, spec)
         if not valid then
           return false, err
+        end
+      else
+        -- Regular type validation for basic types
+        if type(propValue) ~= expectedType then
+          kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(propValue))
+          return false, "Field " .. property.Name .. " must be of type " .. property.Type
         end
       end
     end
@@ -201,7 +199,26 @@ end
 
 -- Function to validate a complex value against its type
 function ODataValidationHandler:validate_complex_value(value, typeName, spec)
-  -- Find the type definition
+  -- Check if it's an enum type
+  if enum_types[typeName] then
+    if type(value) ~= "string" then
+      kong.log.err("Enum value must be a string for type ", typeName)
+      return false, "Value must be a string enum value"
+    end
+    
+    -- Check if the value is valid for this enum
+    if not enum_types[typeName].values[value] then
+      local valid_values = {}
+      for val, _ in pairs(enum_types[typeName].values) do
+        table.insert(valid_values, val)
+      end
+      kong.log.err("Invalid enum value for type ", typeName, ": ", value)
+      return false, "Value must be one of: " .. table.concat(valid_values, ", ")
+    end
+    return true
+  end
+
+  -- Find the type definition for complex types
   local typeEntity
   for _, entity in ipairs(spec) do
     if entity.Name == typeName:match("([^%.]+)$") then

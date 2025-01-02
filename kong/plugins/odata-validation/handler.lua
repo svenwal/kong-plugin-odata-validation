@@ -177,8 +177,8 @@ function ODataValidationHandler:map_odata_type_to_lua(odata_type, namespace)
     return basic_type_mapping[odata_type]
   end
 
-  -- If it starts with the namespace, it's a complex type
-  if namespace and odata_type:match("^" .. namespace .. "%.") then
+  -- If it's a complex type or entity type (contains namespace), it's a table
+  if odata_type:find("%.") then
     return "table"
   end
 

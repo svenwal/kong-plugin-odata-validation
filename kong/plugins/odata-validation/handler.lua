@@ -47,11 +47,10 @@ function ODataValidationHandler:access(conf)
 end
 
 -- Function to validate the request against the OData specification
-function ODataValidationHandler:validate_odata_request(request_body, odata_specification, conf)
-  -- Parse the OData specification
-  local spec, err = self:parse_odata_specification(odata_specification)
-  if err or not spec or #spec == 0 then
-    kong.log.err("Failed to parse OData specification: ", err or "Specification is empty")
+function ODataValidationHandler:validate_odata_request(request_body, spec, conf)
+  -- Remove the parsing step since spec is already parsed
+  if not spec or #spec == 0 then
+    kong.log.err("Specification is empty")
     return false, "Invalid OData specification"
   end
 

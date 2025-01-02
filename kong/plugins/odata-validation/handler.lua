@@ -283,11 +283,12 @@ function ODataValidationHandler:parse_json_specification(json_spec)
                     -- Process properties
                     for propname, propdef in pairs(typedef) do
                         if type(propdef) == "table" and propname ~= "$Kind" then
+                            local isNavigation = propdef["$Kind"] == "NavigationProperty"
                             table.insert(entity.Properties, {
                                 Name = propname,
                                 Type = propdef["$Type"] or "Edm.String",
-                                Required = not (propdef["$Nullable"] or false),
-                                IsNavigation = false
+                                Required = not isNavigation and not (propdef["$Nullable"] or false),
+                                IsNavigation = isNavigation
                             })
                         end
                     end
@@ -310,11 +311,12 @@ function ODataValidationHandler:parse_json_specification(json_spec)
                     -- Process properties
                     for propname, propdef in pairs(typedef) do
                         if type(propdef) == "table" and propname ~= "$Kind" and propname ~= "$Key" then
+                            local isNavigation = propdef["$Kind"] == "NavigationProperty"
                             table.insert(entity.Properties, {
                                 Name = propname,
                                 Type = propdef["$Type"] or "Edm.String",
-                                Required = not (propdef["$Nullable"] or false),
-                                IsNavigation = propdef["$Kind"] == "NavigationProperty"
+                                Required = not isNavigation and not (propdef["$Nullable"] or false),
+                                IsNavigation = isNavigation
                             })
                         end
                     end

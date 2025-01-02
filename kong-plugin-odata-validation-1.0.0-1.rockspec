@@ -1,16 +1,16 @@
 package = "kong-plugin-odata-validation"
 version = "1.0.0-1"
 source = {
-  url = "git://your-repo-url.git",
+  url = "git@github.com:svenwal/kong-plugin-odata-validation.git",
 }
 description = {
   summary = "A Kong plugin for OData request validation",
-  homepage = "https://your-plugin-homepage",
+  homepage = "https://github.com/svenwal/kong-plugin-odata-validation",
   license = "Apache-2.0"
 }
 dependencies = {
   "lua >= 5.1",
-  "kong >= 2.0.0"
+  "kong >= 3.8.0"
 }
 build = {
   type = "builtin",

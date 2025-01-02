@@ -31,7 +31,7 @@ function ODataValidationHandler:access(conf)
   kong.log.debug("OData specification content: ", odata_specification)
 
   -- Implement the actual validation logic against the OData specification
-  local is_valid, validation_error = self:validate_odata_request(request_body, odata_specification)
+  local is_valid, validation_error = self:validate_odata_request(request_body, odata_specification, conf)
 
   if not is_valid then
     kong.log.err("Validation failed: ", validation_error)
@@ -48,22 +48,63 @@ function ODataValidationHandler:validate_odata_request(request_body, odata_speci
     return false, "Invalid OData specification"
   end
 
-  -- Find the Student entity type (or whatever root type you're expecting)
-  local rootEntityType
+  -- Find matching entity type based on request body structure
+  local rootEntityType = self:find_matching_entity_type(request_body, spec)
+  if not rootEntityType then
+    kong.log.err("No matching entity type found for request body")
+    return false, "Request body does not match any known entity type"
+  end
+
+  kong.log.debug("Found matching entity type: ", rootEntityType.Name)
+  -- Validate the request body against the root entity type
+  return self:validate_entity(request_body, rootEntityType, spec)
+end
+
+-- Function to find matching entity type based on request body structure
+function ODataValidationHandler:find_matching_entity_type(request_body, spec)
+  -- Get the set of properties from the request body
+  local request_properties = {}
+  for key, _ in pairs(request_body) do
+    request_properties[key] = true
+  end
+
+  -- Find entity type with best match
+  local best_match = nil
+  local best_match_score = 0
+
   for _, entity in ipairs(spec) do
-    if entity.Name == "Student" then  -- This should be configurable
-      rootEntityType = entity
-      break
+    if not entity.IsComplexType then  -- Only consider entity types, not complex types
+      local match_score = 0
+      local required_properties = {}
+
+      -- Count matching properties and collect required properties
+      for _, prop in ipairs(entity.Properties) do
+        if request_properties[prop.Name] then
+          match_score = match_score + 1
+        end
+        if prop.Required then
+          required_properties[prop.Name] = true
+        end
+      end
+
+      -- Check if all required properties are present
+      local has_all_required = true
+      for prop_name, _ in pairs(required_properties) do
+        if not request_properties[prop_name] then
+          has_all_required = false
+          break
+        end
+      end
+
+      -- Update best match if this entity type has a better score and all required properties
+      if has_all_required and match_score > best_match_score then
+        best_match = entity
+        best_match_score = match_score
+      end
     end
   end
 
-  if not rootEntityType then
-    kong.log.err("Root entity type not found in specification")
-    return false, "Invalid entity type"
-  end
-
-  -- Validate the request body against the root entity type
-  return self:validate_entity(request_body, rootEntityType, spec)
+  return best_match
 end
 
 -- Function to validate an entity against its type definition

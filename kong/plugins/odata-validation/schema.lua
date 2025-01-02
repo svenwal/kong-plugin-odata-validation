@@ -4,8 +4,8 @@ return {
     { config = {
         type = "record",
         fields = {
-          { odata_schema_url = { type = "string", required = true, default = "" } },
-          { odata_specification = { type = "string", required = true, default = "" } },
+          { odata_schema_url = { type = "string", required = false } },
+          { odata_specification = { type = "string", required = false } },
         },
       },
     },

@@ -12,18 +12,38 @@ local enum_types = {}
 -- Add basic_type_mapping as a local variable at the top
 local basic_type_mapping = {
   ["Edm.Int32"] = "number",
+  ["Edm.Int64"] = "number",
   ["Edm.String"] = "string",
   ["Edm.Decimal"] = "number",
+  ["Edm.Single"] = "number",
+  ["Edm.Double"] = "number",
   ["Edm.Boolean"] = "boolean",
   ["Edm.Date"] = "string",
   ["Edm.DateTimeOffset"] = "string",
-  ["Edm.Int64"] = "number",
-  ["Edm.Single"] = "number",
-  ["Edm.Double"] = "number",
   ["Edm.Guid"] = "string",
   ["Edm.Duration"] = "string",
   ["Edm.GeographyPoint"] = "table"
 }
+
+-- Add numeric type validation function
+function ODataValidationHandler:validate_numeric_type(value, edmType)
+  if type(value) ~= "number" then
+    return false
+  end
+
+  -- Validate number ranges
+  if edmType == "Edm.Int32" then
+    return value >= -2147483648 and value <= 2147483647 and math.floor(value) == value
+  elseif edmType == "Edm.Int64" then
+    -- Lua numbers can safely represent integers up to 2^53
+    return math.floor(value) == value
+  elseif edmType == "Edm.Single" or edmType == "Edm.Double" or edmType == "Edm.Decimal" then
+    -- Allow any number for floating point types
+    return true
+  end
+
+  return true
+end
 
 function ODataValidationHandler:access(conf)
   -- Capture request metadata and body
@@ -187,6 +207,14 @@ function ODataValidationHandler:validate_entity(value, entityType, spec)
         if type(propValue) ~= expectedType then
           kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(propValue))
           return false, "Field " .. property.Name .. " must be of type " .. property.Type
+        end
+
+        -- Additional validation for numeric types
+        if property.Type:match("^Edm%.[^%.]+$") and property.Type:match("Int%d+") then
+          if not self:validate_numeric_type(propValue, property.Type) then
+            kong.log.err("Invalid numeric value for ", property.Name, ": value out of range for ", property.Type)
+            return false, "Field " .. property.Name .. " has invalid value for type " .. property.Type
+          end
         end
       end
     end

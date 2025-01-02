@@ -1,0 +1,46 @@
+{
+  "StudentID": 12345,
+  "FirstName": "Jane",
+  "LastName": "Smith",
+  "EnrollmentDate": "2024-01-02T10:00:00Z",
+  "GPA": 3.85,
+  "Status": "Active",
+  "Contact": {
+    "Email": "jane.smith@university.edu",
+    "Phone": "+1-555-123-4567",
+    "Address": {
+      "Street": "123 University Avenue",
+      "City": "College Town",
+      "PostalCode": "12345",
+      "Country": "United States"
+    }
+  },
+  "Courses": [
+    {
+      "CourseID": 101,
+      "Title": "Advanced Database Systems",
+      "Credits": 3,
+      "Level": 400,
+      "IsActive": true,
+      "Department": {
+        "DepartmentID": 5,
+        "Name": "Computer Science",
+        "Budget": 500000.00,
+        "StartDate": "2000-01-01"
+      }
+    },
+    {
+      "CourseID": 202,
+      "Title": "Machine Learning",
+      "Credits": 4,
+      "Level": 400,
+      "IsActive": true
+    }
+  ],
+  "Department": {
+    "DepartmentID": 5,
+    "Name": "Computer Science",
+    "Budget": 500000.00,
+    "StartDate": "2000-01-01"
+  }
+} 

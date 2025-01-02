@@ -58,7 +58,7 @@ function ODataValidationHandler:validate_odata_request(request_body, odata_speci
         kong.log.err("Missing required field: ", property.Name)
         return false, "Missing required field: " .. property.Name
       end
-      if value ~= nil and type(value) ~= self:map_odata_type_to_lua(property.Type) then
+      if value ~= nil and type(value) ~= self:map_odata_type_to_lua(property.Type, entityType.Namespace) then
         kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(value))
         return false, "Field " .. property.Name .. " must be of type " .. property.Type
       end
@@ -66,6 +66,37 @@ function ODataValidationHandler:validate_odata_request(request_body, odata_speci
   end
 
   return true
+end
+
+-- Function to map OData types to Lua types
+function ODataValidationHandler:map_odata_type_to_lua(odata_type, namespace)
+  -- Basic EDM type mappings
+  local basic_type_mapping = {
+    ["Edm.Int32"] = "number",
+    ["Edm.String"] = "string",
+    ["Edm.Decimal"] = "number",
+    ["Edm.Boolean"] = "boolean",
+    ["Edm.Date"] = "string",
+    ["Edm.DateTimeOffset"] = "string"
+  }
+
+  -- Check if it's a collection type
+  if odata_type:match("^Collection%(.*%)$") then
+    return "table"
+  end
+
+  -- Check if it's a basic EDM type
+  if basic_type_mapping[odata_type] then
+    return basic_type_mapping[odata_type]
+  end
+
+  -- If it starts with the namespace, it's a complex type
+  if namespace and odata_type:match("^" .. namespace .. "%.") then
+    return "table"
+  end
+
+  -- Default to string for unknown types
+  return "string"
 end
 
 -- Function to parse the OData specification
@@ -78,72 +109,65 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
   end
 
   local spec = {}
-  
-  -- First try to find the root element to verify the document loaded
   local root = document:root()
   kong.log.debug("Root element name: ", root:name())
 
-  -- Define the namespaces used in the document
   local namespaces = {
     ["edmx"] = "http://docs.oasis-open.org/odata/ns/edmx"
   }
 
-  -- First find the root Edmx element
-  local edmx = document:search("//*[local-name()='Edmx']")[1]
-  if not edmx then
-    kong.log.err("No Edmx element found")
-    return nil, "No Edmx element found"
-  end
-  kong.log.debug("Found Edmx element with name: ", edmx:name())
-
-  -- Then find DataServices
-  local dataServices = edmx:search("*[local-name()='DataServices']")[1]
-  if not dataServices then
-    kong.log.err("No DataServices found in the OData specification")
-    return nil, "No DataServices found"
-  end
-  kong.log.debug("Found DataServices element with name: ", dataServices:name())
-
-  -- Then find Schema
-  local schemas = dataServices:search("*[local-name()='Schema']")
+  -- Find Schema and get namespace
+  local schemas = document:search("//*[local-name()='Schema']")
   if not schemas or #schemas == 0 then
     kong.log.err("No schemas found in the OData specification")
     return nil, "No schemas found"
   end
-  kong.log.debug("Found schemas, count: ", #schemas)
 
+  -- Process each schema
   for _, schema in ipairs(schemas) do
-    -- Safe attribute access
     local namespace = schema:get_attribute("Namespace")
     kong.log.debug("Processing schema with namespace: ", namespace)
-    
-    local entityTypes = schema:search("*[local-name()='EntityType']")
-    if not entityTypes or #entityTypes == 0 then
-      kong.log.warn("No entity types found in schema: ", namespace)
-      goto continue
-    end
 
-    for _, entityType in ipairs(entityTypes) do
-      local entityName = entityType:get_attribute("Name")
-      kong.log.debug("Found entity type: ", entityName)
-      
+    -- First process ComplexTypes
+    local complexTypes = schema:search("*[local-name()='ComplexType']")
+    for _, complexType in ipairs(complexTypes) do
+      local typeName = complexType:get_attribute("Name")
       local entity = {
-        Name = entityName,
-        Properties = {}
+        Name = typeName,
+        Properties = {},
+        IsComplexType = true
       }
 
-      local properties = entityType:search("*[local-name()='Property']")
-      if not properties or #properties == 0 then
-        kong.log.warn("No properties found for entity type: ", entityName)
-        goto continue_entity
-      end
-
+      local properties = complexType:search("*[local-name()='Property']")
       for _, property in ipairs(properties) do
         local propName = property:get_attribute("Name")
         local propType = property:get_attribute("Type")
         local nullable = property:get_attribute("Nullable")
         
-        kong.log.debug("Found property: ", propName, " of type ", propType)
+        table.insert(entity.Properties, {
+          Name = propName,
+          Type = propType,
+          Required = nullable == "false"
+        })
+      end
+      table.insert(spec, entity)
+    end
+
+    -- Then process EntityTypes
+    local entityTypes = schema:search("*[local-name()='EntityType']")
+    for _, entityType in ipairs(entityTypes) do
+      local entityName = entityType:get_attribute("Name")
+      local entity = {
+        Name = entityName,
+        Properties = {},
+        Namespace = namespace
+      }
+
+      local properties = entityType:search("*[local-name()='Property']")
+      for _, property in ipairs(properties) do
+        local propName = property:get_attribute("Name")
+        local propType = property:get_attribute("Type")
+        local nullable = property:get_attribute("Nullable")
         
         table.insert(entity.Properties, {
           Name = propName,
@@ -152,11 +176,22 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
         })
       end
 
+      -- Also process NavigationProperties
+      local navProperties = entityType:search("*[local-name()='NavigationProperty']")
+      for _, navProperty in ipairs(navProperties) do
+        local propName = navProperty:get_attribute("Name")
+        local propType = navProperty:get_attribute("Type")
+        
+        table.insert(entity.Properties, {
+          Name = propName,
+          Type = propType,
+          Required = false,
+          IsNavigation = true
+        })
+      end
+
       table.insert(spec, entity)
-      
-      ::continue_entity::
     end
-    ::continue::
   end
 
   if #spec == 0 then
@@ -164,16 +199,6 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
   end
 
   return spec
-end
-
--- Function to map OData types to Lua types
-function ODataValidationHandler:map_odata_type_to_lua(odata_type)
-  local type_mapping = {
-    ["Edm.Int32"] = "number",
-    ["Edm.String"] = "string",
-    -- Add more mappings as needed
-  }
-  return type_mapping[odata_type] or "string"
 end
 
 return ODataValidationHandler 

@@ -1,0 +1,61 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<edmx:Edmx Version="4.0" xmlns:edmx="http://docs.oasis-open.org/odata/ns/edmx">
+  <edmx:DataServices>
+    <Schema Namespace="UniversityModel" xmlns="http://docs.oasis-open.org/odata/ns/edm">
+      <!-- Complex Types -->
+      <ComplexType Name="Address">
+        <Property Name="Street" Type="Edm.String" Nullable="false"/>
+        <Property Name="City" Type="Edm.String" Nullable="false"/>
+        <Property Name="PostalCode" Type="Edm.String" Nullable="false"/>
+        <Property Name="Country" Type="Edm.String" Nullable="false"/>
+      </ComplexType>
+
+      <ComplexType Name="ContactInfo">
+        <Property Name="Email" Type="Edm.String" Nullable="false"/>
+        <Property Name="Phone" Type="Edm.String" Nullable="true"/>
+        <Property Name="Address" Type="UniversityModel.Address" Nullable="false"/>
+      </ComplexType>
+
+      <!-- Entity Types -->
+      <EntityType Name="Student">
+        <Key>
+          <PropertyRef Name="StudentID"/>
+        </Key>
+        <Property Name="StudentID" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="FirstName" Type="Edm.String" Nullable="false"/>
+        <Property Name="LastName" Type="Edm.String" Nullable="false"/>
+        <Property Name="EnrollmentDate" Type="Edm.DateTimeOffset" Nullable="false"/>
+        <Property Name="GPA" Type="Edm.Decimal" Scale="2" Precision="3" Nullable="true"/>
+        <Property Name="Status" Type="Edm.String" Nullable="false"/>
+        <Property Name="Contact" Type="UniversityModel.ContactInfo" Nullable="false"/>
+        <NavigationProperty Name="Courses" Type="Collection(UniversityModel.Course)"/>
+        <NavigationProperty Name="Department" Type="UniversityModel.Department"/>
+      </EntityType>
+
+      <EntityType Name="Course">
+        <Key>
+          <PropertyRef Name="CourseID"/>
+        </Key>
+        <Property Name="CourseID" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Title" Type="Edm.String" Nullable="false" MaxLength="100"/>
+        <Property Name="Credits" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Level" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="IsActive" Type="Edm.Boolean" Nullable="false"/>
+        <NavigationProperty Name="Students" Type="Collection(UniversityModel.Student)"/>
+        <NavigationProperty Name="Department" Type="UniversityModel.Department"/>
+      </EntityType>
+
+      <EntityType Name="Department">
+        <Key>
+          <PropertyRef Name="DepartmentID"/>
+        </Key>
+        <Property Name="DepartmentID" Type="Edm.Int32" Nullable="false"/>
+        <Property Name="Name" Type="Edm.String" Nullable="false"/>
+        <Property Name="Budget" Type="Edm.Decimal" Scale="2" Nullable="false"/>
+        <Property Name="StartDate" Type="Edm.Date" Nullable="false"/>
+        <NavigationProperty Name="Courses" Type="Collection(UniversityModel.Course)"/>
+        <NavigationProperty Name="Students" Type="Collection(UniversityModel.Student)"/>
+      </EntityType>
+    </Schema>
+  </edmx:DataServices>
+</edmx:Edmx> 

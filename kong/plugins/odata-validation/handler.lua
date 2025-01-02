@@ -27,6 +27,9 @@ function ODataValidationHandler:access(conf)
     return kong.response.exit(500, { message = "OData specification not configured" })
   end
 
+  -- Log the full OData specification for debugging
+  kong.log.debug("OData specification content: ", odata_specification)
+
   -- Implement the actual validation logic against the OData specification
   local is_valid, validation_error = self:validate_odata_request(request_body, odata_specification)
 
@@ -67,19 +70,38 @@ end
 
 -- Function to parse the OData specification
 function ODataValidationHandler:parse_odata_specification(odata_specification)
-  local document = xmlua.XML.parse(odata_specification)
+  kong.log.debug("Parsing OData specification...")
+  local document, parse_err = xmlua.XML.parse(odata_specification)
+  if parse_err then
+    kong.log.err("XML parsing error: ", parse_err)
+    return nil, "XML parsing error"
+  end
+
   local spec = {}
   local schemas = document:search("edmx:Edmx/edmx:DataServices/Schema")
+  if not schemas or #schemas == 0 then
+    kong.log.err("No schemas found in the OData specification")
+    return nil, "No schemas found"
+  end
 
   for _, schema in ipairs(schemas) do
+    kong.log.debug("Processing schema: ", schema:attribute("Namespace"))
     local entityTypes = schema:search("EntityType")
+    if not entityTypes or #entityTypes == 0 then
+      kong.log.warn("No entity types found in schema: ", schema:attribute("Namespace"))
+    end
     for _, entityType in ipairs(entityTypes) do
+      kong.log.debug("Found entity type: ", entityType:attribute("Name"))
       local entity = {
         Name = entityType:attribute("Name"),
         Properties = {}
       }
       local properties = entityType:search("Property")
+      if not properties or #properties == 0 then
+        kong.log.warn("No properties found for entity type: ", entityType:attribute("Name"))
+      end
       for _, property in ipairs(properties) do
+        kong.log.debug("Found property: ", property:attribute("Name"), " of type ", property:attribute("Type"))
         table.insert(entity.Properties, {
           Name = property:attribute("Name"),
           Type = property:attribute("Type"),
@@ -88,6 +110,10 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
       end
       table.insert(spec, entity)
     end
+  end
+
+  if #spec == 0 then
+    kong.log.err("Parsed specification is empty")
   end
 
   return spec

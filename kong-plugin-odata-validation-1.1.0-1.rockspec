@@ -1,5 +1,5 @@
 package = "kong-plugin-odata-validation"
-version = "1.0.0-1"
+version = "1.1.0-1"
 source = {
   url = "git@github.com:svenwal/kong-plugin-odata-validation.git",
 }

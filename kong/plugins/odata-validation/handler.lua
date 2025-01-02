@@ -48,24 +48,111 @@ function ODataValidationHandler:validate_odata_request(request_body, odata_speci
     return false, "Invalid OData specification"
   end
 
-  -- Validate the request body against the parsed specification
-  for _, entityType in ipairs(spec) do
-    kong.log.debug("Validating entity type: ", entityType.Name)
-    for _, property in ipairs(entityType.Properties) do
-      kong.log.debug("Checking property: ", property.Name)
-      local value = request_body[property.Name]
-      if property.Required and value == nil then
-        kong.log.err("Missing required field: ", property.Name)
-        return false, "Missing required field: " .. property.Name
-      end
-      if value ~= nil and type(value) ~= self:map_odata_type_to_lua(property.Type, entityType.Namespace) then
-        kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(value))
-        return false, "Field " .. property.Name .. " must be of type " .. property.Type
-      end
+  -- Find the Student entity type (or whatever root type you're expecting)
+  local rootEntityType
+  for _, entity in ipairs(spec) do
+    if entity.Name == "Student" then  -- This should be configurable
+      rootEntityType = entity
+      break
     end
   end
 
+  if not rootEntityType then
+    kong.log.err("Root entity type not found in specification")
+    return false, "Invalid entity type"
+  end
+
+  -- Validate the request body against the root entity type
+  return self:validate_entity(request_body, rootEntityType, spec)
+end
+
+-- Function to validate an entity against its type definition
+function ODataValidationHandler:validate_entity(value, entityType, spec)
+  kong.log.debug("Validating entity of type: ", entityType.Name)
+  
+  if type(value) ~= "table" then
+    return false, "Expected object for type " .. entityType.Name
+  end
+
+  -- Validate each property
+  for _, property in ipairs(entityType.Properties) do
+    local propValue = value[property.Name]
+    kong.log.debug("Checking property: ", property.Name)
+
+    -- Check required fields
+    if property.Required and propValue == nil then
+      kong.log.err("Missing required field: ", property.Name)
+      return false, "Missing required field: " .. property.Name
+    end
+
+    -- Skip validation for null optional fields
+    if propValue == nil then
+      goto continue
+    end
+
+    -- Handle different types of properties
+    if property.IsNavigation then
+      -- Handle navigation properties
+      if property.Type:match("^Collection%(.*%)$") then
+        if type(propValue) ~= "table" then
+          return false, "Expected array for collection property " .. property.Name
+        end
+        -- Validate each item in the collection
+        local itemType = property.Type:match("^Collection%((.*)%)$")
+        for _, item in ipairs(propValue) do
+          local valid, err = self:validate_complex_value(item, itemType, spec)
+          if not valid then
+            return false, err
+          end
+        end
+      else
+        -- Single navigation property
+        local valid, err = self:validate_complex_value(propValue, property.Type, spec)
+        if not valid then
+          return false, err
+        end
+      end
+    else
+      -- Handle regular and complex type properties
+      local expectedType = self:map_odata_type_to_lua(property.Type, entityType.Namespace)
+      if type(propValue) ~= expectedType then
+        kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(propValue))
+        return false, "Field " .. property.Name .. " must be of type " .. property.Type
+      end
+
+      -- If it's a complex type, validate its structure
+      if expectedType == "table" then
+        local valid, err = self:validate_complex_value(propValue, property.Type, spec)
+        if not valid then
+          return false, err
+        end
+      end
+    end
+
+    ::continue::
+  end
+
   return true
+end
+
+-- Function to validate a complex value against its type
+function ODataValidationHandler:validate_complex_value(value, typeName, spec)
+  -- Find the type definition
+  local typeEntity
+  for _, entity in ipairs(spec) do
+    if entity.Name == typeName:match("([^%.]+)$") then
+      typeEntity = entity
+      break
+    end
+  end
+
+  if not typeEntity then
+    kong.log.err("Type not found: ", typeName)
+    return false, "Unknown type: " .. typeName
+  end
+
+  -- Validate against the found type
+  return self:validate_entity(value, typeEntity, spec)
 end
 
 -- Function to map OData types to Lua types

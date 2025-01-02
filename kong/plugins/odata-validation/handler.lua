@@ -81,11 +81,11 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
   -- Define the namespaces used in the document
   local namespaces = {
     edmx = "http://docs.oasis-open.org/odata/ns/edmx",
-    default = "http://docs.oasis-open.org/odata/ns/edm"
+    edm = "http://docs.oasis-open.org/odata/ns/edm"  -- Use edm prefix for the default namespace
   }
 
   -- Use the correct namespace prefix in the XPath query
-  local schemas = document:search("//edmx:DataServices/*[local-name()='Schema']", namespaces)
+  local schemas = document:search("/edmx:Edmx/edmx:DataServices/edm:Schema", namespaces)
   if not schemas or #schemas == 0 then
     kong.log.err("No schemas found in the OData specification")
     return nil, "No schemas found"
@@ -93,7 +93,7 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
 
   for _, schema in ipairs(schemas) do
     kong.log.debug("Processing schema: ", schema:attribute("Namespace"))
-    local entityTypes = schema:search("edm:EntityType", namespaces)
+    local entityTypes = schema:search("./edm:EntityType", namespaces)
     if not entityTypes or #entityTypes == 0 then
       kong.log.warn("No entity types found in schema: ", schema:attribute("Namespace"))
     end
@@ -103,7 +103,7 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
         Name = entityType:attribute("Name"),
         Properties = {}
       }
-      local properties = entityType:search("edm:Property", namespaces)
+      local properties = entityType:search("./edm:Property", namespaces)
       if not properties or #properties == 0 then
         kong.log.warn("No properties found for entity type: ", entityType:attribute("Name"))
       end

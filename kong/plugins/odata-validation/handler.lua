@@ -78,21 +78,32 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
   end
 
   local spec = {}
+  
+  -- First try to find the root element to verify the document loaded
+  local root = document:root()
+  kong.log.debug("Root element name: ", root:name())
+
   -- Define the namespaces used in the document
   local namespaces = {
-    edmx = "http://docs.oasis-open.org/odata/ns/edmx",
-    edm = "http://docs.oasis-open.org/odata/ns/edm"
+    ["edmx"] = "http://docs.oasis-open.org/odata/ns/edmx"
   }
 
-  -- First find DataServices
-  local dataServices = document:search("/edmx:Edmx/edmx:DataServices", namespaces)
-  if not dataServices or #dataServices == 0 then
+  -- First find the root Edmx element
+  local edmx = document:search("//*[local-name()='Edmx']")[1]
+  if not edmx then
+    kong.log.err("No Edmx element found")
+    return nil, "No Edmx element found"
+  end
+
+  -- Then find DataServices
+  local dataServices = edmx:search("*[local-name()='DataServices']")[1]
+  if not dataServices then
     kong.log.err("No DataServices found in the OData specification")
     return nil, "No DataServices found"
   end
 
-  -- Then find Schema within DataServices (using local-name since it's in default namespace)
-  local schemas = dataServices[1]:search("*[local-name()='Schema']")
+  -- Then find Schema
+  local schemas = dataServices:search("*[local-name()='Schema']")
   if not schemas or #schemas == 0 then
     kong.log.err("No schemas found in the OData specification")
     return nil, "No schemas found"

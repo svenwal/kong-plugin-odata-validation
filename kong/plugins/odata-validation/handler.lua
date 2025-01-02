@@ -94,6 +94,7 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
     kong.log.err("No Edmx element found")
     return nil, "No Edmx element found"
   end
+  kong.log.debug("Found Edmx element with name: ", edmx:name())
 
   -- Then find DataServices
   local dataServices = edmx:search("*[local-name()='DataServices']")[1]
@@ -101,6 +102,7 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
     kong.log.err("No DataServices found in the OData specification")
     return nil, "No DataServices found"
   end
+  kong.log.debug("Found DataServices element with name: ", dataServices:name())
 
   -- Then find Schema
   local schemas = dataServices:search("*[local-name()='Schema']")
@@ -108,33 +110,53 @@ function ODataValidationHandler:parse_odata_specification(odata_specification)
     kong.log.err("No schemas found in the OData specification")
     return nil, "No schemas found"
   end
+  kong.log.debug("Found schemas, count: ", #schemas)
 
   for _, schema in ipairs(schemas) do
-    kong.log.debug("Processing schema: ", schema:attribute("Namespace"))
+    -- Safe attribute access
+    local namespace = schema:get_attribute("Namespace")
+    kong.log.debug("Processing schema with namespace: ", namespace)
+    
     local entityTypes = schema:search("*[local-name()='EntityType']")
     if not entityTypes or #entityTypes == 0 then
-      kong.log.warn("No entity types found in schema: ", schema:attribute("Namespace"))
+      kong.log.warn("No entity types found in schema: ", namespace)
+      goto continue
     end
+
     for _, entityType in ipairs(entityTypes) do
-      kong.log.debug("Found entity type: ", entityType:attribute("Name"))
+      local entityName = entityType:get_attribute("Name")
+      kong.log.debug("Found entity type: ", entityName)
+      
       local entity = {
-        Name = entityType:attribute("Name"),
+        Name = entityName,
         Properties = {}
       }
+
       local properties = entityType:search("*[local-name()='Property']")
       if not properties or #properties == 0 then
-        kong.log.warn("No properties found for entity type: ", entityType:attribute("Name"))
+        kong.log.warn("No properties found for entity type: ", entityName)
+        goto continue_entity
       end
+
       for _, property in ipairs(properties) do
-        kong.log.debug("Found property: ", property:attribute("Name"), " of type ", property:attribute("Type"))
+        local propName = property:get_attribute("Name")
+        local propType = property:get_attribute("Type")
+        local nullable = property:get_attribute("Nullable")
+        
+        kong.log.debug("Found property: ", propName, " of type ", propType)
+        
         table.insert(entity.Properties, {
-          Name = property:attribute("Name"),
-          Type = property:attribute("Type"),
-          Required = property:attribute("Nullable") == "false"
+          Name = propName,
+          Type = propType,
+          Required = nullable == "false"
         })
       end
+
       table.insert(spec, entity)
+      
+      ::continue_entity::
     end
+    ::continue::
   end
 
   if #spec == 0 then

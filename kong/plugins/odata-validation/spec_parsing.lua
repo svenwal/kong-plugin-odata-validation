@@ -135,8 +135,17 @@ function SpecParser:parse_xml_specification(xml_spec)
     local root = document:root()
     kong.log.debug("Root element name: ", root:name())
 
-    -- Find all Schema elements
-    local schemas = root:search("//Schema")
+    -- Find all Schema elements, considering namespaces
+    local schemas = root:search("//edmx:DataServices/Schema")
+    if #schemas == 0 then
+        -- Try without namespace
+        schemas = root:search("//DataServices/Schema")
+    end
+    if #schemas == 0 then
+        -- Try direct Schema search
+        schemas = root:search("//Schema")
+    end
+
     local spec = {}
 
     -- Process each schema
@@ -145,7 +154,7 @@ function SpecParser:parse_xml_specification(xml_spec)
         kong.log.debug("Processing schema with namespace: ", namespace)
 
         -- First process EnumTypes
-        local enumTypes = schema:search("*[local-name()='EnumType']")
+        local enumTypes = schema:search("EnumType")
         for _, enumType in ipairs(enumTypes) do
             local enumName = enumType:get_attribute("Name")
             local fullName = namespace .. "." .. enumName
@@ -153,7 +162,7 @@ function SpecParser:parse_xml_specification(xml_spec)
                 values = {}
             }
 
-            local members = enumType:search("*[local-name()='Member']")
+            local members = enumType:search("Member")
             for _, member in ipairs(members) do
                 local memberName = member:get_attribute("Name")
                 local memberValue = member:get_attribute("Value")
@@ -162,16 +171,17 @@ function SpecParser:parse_xml_specification(xml_spec)
         end
 
         -- Process ComplexTypes
-        local complexTypes = schema:search("*[local-name()='ComplexType']")
+        local complexTypes = schema:search("ComplexType")
         for _, complexType in ipairs(complexTypes) do
             local entity = {
                 Name = complexType:get_attribute("Name"),
                 Properties = {},
-                IsComplexType = true
+                IsComplexType = true,
+                Namespace = namespace
             }
 
             -- Process properties
-            local properties = complexType:search("*[local-name()='Property']")
+            local properties = complexType:search("Property")
             for _, prop in ipairs(properties) do
                 table.insert(entity.Properties, {
                     Name = prop:get_attribute("Name"),
@@ -184,7 +194,7 @@ function SpecParser:parse_xml_specification(xml_spec)
         end
 
         -- Process EntityTypes
-        local entityTypes = schema:search("*[local-name()='EntityType']")
+        local entityTypes = schema:search("EntityType")
         for _, entityType in ipairs(entityTypes) do
             local entity = {
                 Name = entityType:get_attribute("Name"),
@@ -195,13 +205,13 @@ function SpecParser:parse_xml_specification(xml_spec)
             }
 
             -- Process key fields
-            local keys = entityType:search("*[local-name()='Key']/*[local-name()='PropertyRef']")
+            local keys = entityType:search("Key/PropertyRef")
             for _, key in ipairs(keys) do
                 table.insert(entity.Key, key:get_attribute("Name"))
             end
 
             -- Process properties
-            local properties = entityType:search("*[local-name()='Property']")
+            local properties = entityType:search("Property")
             for _, prop in ipairs(properties) do
                 table.insert(entity.Properties, {
                     Name = prop:get_attribute("Name"),
@@ -211,7 +221,7 @@ function SpecParser:parse_xml_specification(xml_spec)
             end
 
             -- Process navigation properties
-            local navProperties = entityType:search("*[local-name()='NavigationProperty']")
+            local navProperties = entityType:search("NavigationProperty")
             for _, navProp in ipairs(navProperties) do
                 table.insert(entity.Properties, {
                     Name = navProp:get_attribute("Name"),
@@ -227,6 +237,8 @@ function SpecParser:parse_xml_specification(xml_spec)
 
     if #spec == 0 then
         kong.log.err("Parsed specification is empty")
+    else
+        kong.log.debug("Successfully parsed " .. #spec .. " types from XML specification")
     end
 
     return spec

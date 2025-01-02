@@ -17,6 +17,5 @@ build = {
   modules = {
     ["kong.plugins.odata-validation.handler"] = "kong/plugins/odata-validation/handler.lua",
     ["kong.plugins.odata-validation.schema"] = "kong/plugins/odata-validation/schema.lua",
-    ["kong.plugins.odata-validation.spec_parsing"] = "kong/plugins/odata-validation/spec_parsing.lua",
   }
 } 

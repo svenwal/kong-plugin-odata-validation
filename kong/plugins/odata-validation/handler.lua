@@ -6,6 +6,9 @@ local ODataValidationHandler = {
     VERSION = "0.1",
 }
 
+-- Add to the top with other local declarations
+local enum_types = {}
+
 function ODataValidationHandler:access(conf)
   -- Capture request metadata and body
   local request_method = kong.request.get_method()
@@ -156,9 +159,29 @@ function ODataValidationHandler:validate_entity(value, entityType, spec)
     else
       -- Handle regular and complex type properties
       local expectedType = self:map_odata_type_to_lua(property.Type, entityType.Namespace)
-      if type(propValue) ~= expectedType then
-        kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(propValue))
-        return false, "Field " .. property.Name .. " must be of type " .. property.Type
+      
+      -- Special handling for enum types
+      if enum_types[property.Type] then
+        if type(propValue) ~= "string" then
+          kong.log.err("Enum value must be a string for ", property.Name)
+          return false, "Field " .. property.Name .. " must be a string enum value"
+        end
+        
+        -- Check if the value is valid for this enum
+        if not enum_types[property.Type].values[propValue] then
+          local valid_values = {}
+          for val, _ in pairs(enum_types[property.Type].values) do
+            table.insert(valid_values, val)
+          end
+          kong.log.err("Invalid enum value for ", property.Name, ": ", propValue)
+          return false, "Field " .. property.Name .. " must be one of: " .. table.concat(valid_values, ", ")
+        end
+      else
+        -- Regular type validation
+        if type(propValue) ~= expectedType then
+          kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(propValue))
+          return false, "Field " .. property.Name .. " must be of type " .. property.Type
+        end
       end
 
       -- If it's a complex type, validate its structure
@@ -270,6 +293,23 @@ function ODataValidationHandler:parse_json_specification(json_spec)
     -- Process schema definitions
     for namespace, schema in pairs(parsed_json) do
         if type(schema) == "table" and namespace ~= "$Version" and namespace ~= "$Reference" then
+            -- First process enum types
+            for typename, typedef in pairs(schema) do
+                if type(typedef) == "table" and typedef["$Kind"] == "EnumType" then
+                    local fullName = namespace .. "." .. typename
+                    enum_types[fullName] = {
+                        values = {}
+                    }
+
+                    -- Process enum members
+                    for memberName, memberDef in pairs(typedef) do
+                        if type(memberDef) == "table" and memberDef["$Value"] then
+                            enum_types[fullName].values[memberName] = memberDef["$Value"]
+                        end
+                    end
+                end
+            end
+
             -- First process complex types
             for typename, typedef in pairs(schema) do
                 if type(typedef) == "table" and typedef["$Kind"] == "ComplexType" then
@@ -362,6 +402,23 @@ function ODataValidationHandler:parse_xml_specification(xml_spec)
     for _, schema in ipairs(schemas) do
         local namespace = schema:get_attribute("Namespace")
         kong.log.debug("Processing schema with namespace: ", namespace)
+
+        -- First process EnumTypes
+        local enumTypes = schema:search("*[local-name()='EnumType']")
+        for _, enumType in ipairs(enumTypes) do
+            local enumName = enumType:get_attribute("Name")
+            local fullName = namespace .. "." .. enumName
+            enum_types[fullName] = {
+                values = {}
+            }
+
+            local members = enumType:search("*[local-name()='Member']")
+            for _, member in ipairs(members) do
+                local memberName = member:get_attribute("Name")
+                local memberValue = member:get_attribute("Value")
+                enum_types[fullName].values[memberName] = memberValue or #enum_types[fullName].values
+            end
+        end
 
         -- First process ComplexTypes
         local complexTypes = schema:search("*[local-name()='ComplexType']")

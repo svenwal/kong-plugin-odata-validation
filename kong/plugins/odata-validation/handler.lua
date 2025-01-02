@@ -8,7 +8,6 @@ local ODataValidationHandler = {
 
 
 function ODataValidationHandler:access(conf)
-  ODataValidationHandler.super.access(self)
 
   -- Capture request metadata and body
   local request_method = kong.request.get_method()

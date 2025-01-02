@@ -194,26 +194,38 @@ function ODataValidationHandler:validate_entity(value, entityType, spec)
       end
     else
       -- Handle regular and complex type properties
-      local expectedType = self:map_odata_type_to_lua(property.Type, entityType.Namespace)
-      
-      -- Skip basic type validation for complex types and enums
       if not basic_type_mapping[property.Type] then
         local valid, err = self:validate_complex_value(propValue, property.Type, spec)
         if not valid then
           return false, err
         end
       else
-        -- Regular type validation for basic types
-        if type(propValue) ~= expectedType then
-          kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(propValue))
-          return false, "Field " .. property.Name .. " must be of type " .. property.Type
-        end
+        -- Get expected Lua type
+        local expectedType = basic_type_mapping[property.Type]
+        local valueType = type(propValue)
 
-        -- Additional validation for numeric types
-        if property.Type:match("^Edm%.[^%.]+$") and property.Type:match("Int%d+") then
-          if not self:validate_numeric_type(propValue, property.Type) then
-            kong.log.err("Invalid numeric value for ", property.Name, ": value out of range for ", property.Type)
-            return false, "Field " .. property.Name .. " has invalid value for type " .. property.Type
+        -- Special handling for numeric types
+        if property.Type:match("^Edm%.Int%d+$") or 
+           property.Type == "Edm.Decimal" or 
+           property.Type == "Edm.Single" or 
+           property.Type == "Edm.Double" then
+          if valueType ~= "number" then
+            kong.log.err("Field type mismatch for ", property.Name, ": expected number, got ", valueType)
+            return false, "Field " .. property.Name .. " must be a number"
+          end
+          
+          -- Additional validation for integer types
+          if property.Type:match("^Edm%.Int%d+$") then
+            if not self:validate_numeric_type(propValue, property.Type) then
+              kong.log.err("Invalid integer value for ", property.Name)
+              return false, "Field " .. property.Name .. " must be a valid integer"
+            end
+          end
+        else
+          -- Regular type validation for non-numeric types
+          if valueType ~= expectedType then
+            kong.log.err("Field type mismatch for ", property.Name, ": expected ", expectedType, ", got ", valueType)
+            return false, "Field " .. property.Name .. " must be of type " .. property.Type
           end
         end
       end
@@ -266,16 +278,6 @@ end
 
 -- Function to map OData types to Lua types
 function ODataValidationHandler:map_odata_type_to_lua(odata_type, namespace)
-  -- Basic EDM type mappings
-  local basic_type_mapping = {
-    ["Edm.Int32"] = "number",
-    ["Edm.String"] = "string",
-    ["Edm.Decimal"] = "number",
-    ["Edm.Boolean"] = "boolean",
-    ["Edm.Date"] = "string",
-    ["Edm.DateTimeOffset"] = "string"
-  }
-
   -- Check if it's a collection type
   if odata_type:match("^Collection%(.*%)$") then
     return "table"

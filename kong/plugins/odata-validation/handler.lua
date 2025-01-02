@@ -2,14 +2,11 @@ local BasePlugin = require "kong.plugins.base_plugin"
 local cjson = require "cjson.safe"
 local xmlua = require "xmlua"
 
-local ODataValidationHandler = BasePlugin:extend()
+local ODataValidationHandler = {
+    PRIORITY = 1010, -- set the plugin priority, which determines plugin execution order
+    VERSION = "0.1",
+  }
 
-ODataValidationHandler.VERSION = "1.0.0"
-ODataValidationHandler.PRIORITY = 1000
-
-function ODataValidationHandler:new()
-  ODataValidationHandler.super.new(self, "odata-validation")
-end
 
 function ODataValidationHandler:access(conf)
   ODataValidationHandler.super.access(self)

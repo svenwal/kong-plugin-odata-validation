@@ -29,10 +29,6 @@ function ODataValidationHandler:access(conf)
     return kong.response.exit(500, { message = "OData specification not configured" })
   end
 
-  if not request_path:match("/odata/") then
-    return kong.response.exit(400, { message = "Invalid OData request path" })
-  end
-
   -- Implement the actual validation logic against the OData specification
   local is_valid, validation_error = self:validate_odata_request(request_body, odata_specification)
 

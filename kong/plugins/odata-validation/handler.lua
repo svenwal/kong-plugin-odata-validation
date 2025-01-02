@@ -27,11 +27,18 @@ function ODataValidationHandler:access(conf)
     return kong.response.exit(500, { message = "OData specification not configured" })
   end
 
+  local spec, err = self:parse_odata_specification(odata_specification, conf.specification_format)
+
+  if err then
+    kong.log.err("Failed to parse OData specification: ", err)
+    return kong.response.exit(500, { message = err })
+  end
+
   -- Log the full OData specification for debugging
-  kong.log.debug("OData specification content: ", odata_specification)
+  kong.log.debug("OData specification content: ", cjson.encode(spec))
 
   -- Implement the actual validation logic against the OData specification
-  local is_valid, validation_error = self:validate_odata_request(request_body, odata_specification, conf)
+  local is_valid, validation_error = self:validate_odata_request(request_body, spec, conf)
 
   if not is_valid then
     kong.log.err("Validation failed: ", validation_error)
@@ -40,11 +47,10 @@ function ODataValidationHandler:access(conf)
 end
 
 -- Function to validate the request against the OData specification
-function ODataValidationHandler:validate_odata_request(request_body, odata_specification, conf)
-  -- Parse the OData specification
-  local spec, err = self:parse_odata_specification(odata_specification)
-  if err or not spec or #spec == 0 then
-    kong.log.err("Failed to parse OData specification: ", err or "Specification is empty")
+function ODataValidationHandler:validate_odata_request(request_body, spec, conf)
+  -- Remove the parsing step since spec is already parsed
+  if not spec or #spec == 0 then
+    kong.log.err("Specification is empty")
     return false, "Invalid OData specification"
   end
 
@@ -222,105 +228,212 @@ function ODataValidationHandler:map_odata_type_to_lua(odata_type, namespace)
 end
 
 -- Function to parse the OData specification
-function ODataValidationHandler:parse_odata_specification(odata_specification)
-  kong.log.debug("Parsing OData specification...")
-  local document, parse_err = xmlua.XML.parse(odata_specification)
-  if parse_err then
-    kong.log.err("XML parsing error: ", parse_err)
-    return nil, "XML parsing error"
-  end
-
-  local spec = {}
-  local root = document:root()
-  kong.log.debug("Root element name: ", root:name())
-
-  local namespaces = {
-    ["edmx"] = "http://docs.oasis-open.org/odata/ns/edmx"
-  }
-
-  -- Find Schema and get namespace
-  local schemas = document:search("//*[local-name()='Schema']")
-  if not schemas or #schemas == 0 then
-    kong.log.err("No schemas found in the OData specification")
-    return nil, "No schemas found"
-  end
-
-  -- Process each schema
-  for _, schema in ipairs(schemas) do
-    local namespace = schema:get_attribute("Namespace")
-    kong.log.debug("Processing schema with namespace: ", namespace)
-
-    -- First process ComplexTypes
-    local complexTypes = schema:search("*[local-name()='ComplexType']")
-    for _, complexType in ipairs(complexTypes) do
-      local typeName = complexType:get_attribute("Name")
-      local entity = {
-        Name = typeName,
-        Properties = {},
-        IsComplexType = true
-      }
-
-      local properties = complexType:search("*[local-name()='Property']")
-      for _, property in ipairs(properties) do
-        local propName = property:get_attribute("Name")
-        local propType = property:get_attribute("Type")
-        local nullable = property:get_attribute("Nullable")
-        
-        table.insert(entity.Properties, {
-          Name = propName,
-          Type = propType,
-          Required = nullable == "false"
-        })
-      end
-      table.insert(spec, entity)
+function ODataValidationHandler:parse_odata_specification(odata_specification, format)
+    kong.log.debug("Parsing OData specification...")
+    
+    -- Auto-detect format if not specified
+    if not format or format == "auto" then
+        -- Check if it starts with { for JSON
+        if odata_specification:match("^%s*{") then
+            format = "json"
+        -- Check if it starts with < or <?xml for XML
+        elseif odata_specification:match("^%s*<%??") then
+            format = "xml"
+        else
+            return nil, "Unable to auto-detect specification format"
+        end
     end
 
-    -- Then process EntityTypes
-    local entityTypes = schema:search("*[local-name()='EntityType']")
-    for _, entityType in ipairs(entityTypes) do
-      local entityName = entityType:get_attribute("Name")
-      local entity = {
-        Name = entityName,
-        Properties = {},
-        Namespace = namespace
-      }
-
-      local properties = entityType:search("*[local-name()='Property']")
-      for _, property in ipairs(properties) do
-        local propName = property:get_attribute("Name")
-        local propType = property:get_attribute("Type")
-        local nullable = property:get_attribute("Nullable")
-        
-        table.insert(entity.Properties, {
-          Name = propName,
-          Type = propType,
-          Required = nullable == "false"
-        })
-      end
-
-      -- Also process NavigationProperties
-      local navProperties = entityType:search("*[local-name()='NavigationProperty']")
-      for _, navProperty in ipairs(navProperties) do
-        local propName = navProperty:get_attribute("Name")
-        local propType = navProperty:get_attribute("Type")
-        
-        table.insert(entity.Properties, {
-          Name = propName,
-          Type = propType,
-          Required = false,
-          IsNavigation = true
-        })
-      end
-
-      table.insert(spec, entity)
+    if format == "json" then
+        return self:parse_json_specification(odata_specification)
+    else
+        return self:parse_xml_specification(odata_specification)
     end
-  end
+end
 
-  if #spec == 0 then
-    kong.log.err("Parsed specification is empty")
-  end
+-- Add new function to parse JSON specification
+function ODataValidationHandler:parse_json_specification(json_spec)
+    local spec = {}
+    
+    -- Parse JSON
+    local parsed_json, err = cjson.decode(json_spec)
+    if err then
+        kong.log.err("Failed to parse JSON specification: ", err)
+        return nil, "Invalid JSON specification"
+    end
 
-  return spec
+    -- Validate JSON structure
+    if not parsed_json["$Version"] then
+        return nil, "Invalid OData JSON specification: missing $Version"
+    end
+
+    -- Process schema definitions
+    for namespace, schema in pairs(parsed_json) do
+        if type(schema) == "table" and namespace ~= "$Version" and namespace ~= "$Reference" then
+            -- First process complex types
+            for typename, typedef in pairs(schema) do
+                if type(typedef) == "table" and typedef["$Kind"] == "ComplexType" then
+                    local entity = {
+                        Name = typename,
+                        Properties = {},
+                        IsComplexType = true,
+                        Namespace = namespace
+                    }
+
+                    -- Process properties
+                    for propname, propdef in pairs(typedef) do
+                        if type(propdef) == "table" and propname ~= "$Kind" then
+                            local isNavigation = propdef["$Kind"] == "NavigationProperty"
+                            table.insert(entity.Properties, {
+                                Name = propname,
+                                Type = propdef["$Type"] or "Edm.String",
+                                Required = not isNavigation and not (propdef["$Nullable"] or false),
+                                IsNavigation = isNavigation
+                            })
+                        end
+                    end
+
+                    table.insert(spec, entity)
+                end
+            end
+
+            -- Then process entity types
+            for typename, typedef in pairs(schema) do
+                if type(typedef) == "table" and typedef["$Kind"] == "EntityType" then
+                    local entity = {
+                        Name = typename,
+                        Properties = {},
+                        Key = typedef["$Key"] or {},
+                        IsComplexType = false,
+                        Namespace = namespace
+                    }
+
+                    -- Process properties
+                    for propname, propdef in pairs(typedef) do
+                        if type(propdef) == "table" and propname ~= "$Kind" and propname ~= "$Key" then
+                            local isNavigation = propdef["$Kind"] == "NavigationProperty"
+                            table.insert(entity.Properties, {
+                                Name = propname,
+                                Type = propdef["$Type"] or "Edm.String",
+                                Required = not isNavigation and not (propdef["$Nullable"] or false),
+                                IsNavigation = isNavigation
+                            })
+                        end
+                    end
+
+                    table.insert(spec, entity)
+                end
+            end
+        end
+    end
+
+    if #spec == 0 then
+        kong.log.err("Parsed JSON specification is empty")
+    end
+
+    return spec
+end
+
+-- Rename existing XML parsing function
+function ODataValidationHandler:parse_xml_specification(xml_spec)
+    kong.log.debug("Parsing OData specification...")
+    local document, parse_err = xmlua.XML.parse(xml_spec)
+    if parse_err then
+        kong.log.err("XML parsing error: ", parse_err)
+        return nil, "XML parsing error"
+    end
+
+    local spec = {}
+    local root = document:root()
+    kong.log.debug("Root element name: ", root:name())
+
+    local namespaces = {
+        ["edmx"] = "http://docs.oasis-open.org/odata/ns/edmx"
+    }
+
+    -- Find Schema and get namespace
+    local schemas = document:search("//*[local-name()='Schema']")
+    if not schemas or #schemas == 0 then
+        kong.log.err("No schemas found in the OData specification")
+        return nil, "No schemas found"
+    end
+
+    -- Process each schema
+    for _, schema in ipairs(schemas) do
+        local namespace = schema:get_attribute("Namespace")
+        kong.log.debug("Processing schema with namespace: ", namespace)
+
+        -- First process ComplexTypes
+        local complexTypes = schema:search("*[local-name()='ComplexType']")
+        for _, complexType in ipairs(complexTypes) do
+            local typeName = complexType:get_attribute("Name")
+            local entity = {
+                Name = typeName,
+                Properties = {},
+                IsComplexType = true
+            }
+
+            local properties = complexType:search("*[local-name()='Property']")
+            for _, property in ipairs(properties) do
+                local propName = property:get_attribute("Name")
+                local propType = property:get_attribute("Type")
+                local nullable = property:get_attribute("Nullable")
+                
+                table.insert(entity.Properties, {
+                    Name = propName,
+                    Type = propType,
+                    Required = nullable == "false"
+                })
+            end
+            table.insert(spec, entity)
+        end
+
+        -- Then process EntityTypes
+        local entityTypes = schema:search("*[local-name()='EntityType']")
+        for _, entityType in ipairs(entityTypes) do
+            local entityName = entityType:get_attribute("Name")
+            local entity = {
+                Name = entityName,
+                Properties = {},
+                Namespace = namespace
+            }
+
+            local properties = entityType:search("*[local-name()='Property']")
+            for _, property in ipairs(properties) do
+                local propName = property:get_attribute("Name")
+                local propType = property:get_attribute("Type")
+                local nullable = property:get_attribute("Nullable")
+                
+                table.insert(entity.Properties, {
+                    Name = propName,
+                    Type = propType,
+                    Required = nullable == "false"
+                })
+            end
+
+            -- Also process NavigationProperties
+            local navProperties = entityType:search("*[local-name()='NavigationProperty']")
+            for _, navProperty in ipairs(navProperties) do
+                local propName = navProperty:get_attribute("Name")
+                local propType = navProperty:get_attribute("Type")
+                
+                table.insert(entity.Properties, {
+                    Name = propName,
+                    Type = propType,
+                    Required = false,
+                    IsNavigation = true
+                })
+            end
+
+            table.insert(spec, entity)
+        end
+    end
+
+    if #spec == 0 then
+        kong.log.err("Parsed specification is empty")
+    end
+
+    return spec
 end
 
 return ODataValidationHandler 

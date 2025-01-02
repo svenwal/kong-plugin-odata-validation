@@ -1,0 +1,144 @@
+{
+  "$Version": "4.01",
+  "$Reference": {},
+  "UniversityModel": {
+    "Address": {
+      "$Kind": "ComplexType",
+      "Street": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      },
+      "City": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      },
+      "PostalCode": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      },
+      "Country": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      }
+    },
+    "ContactInfo": {
+      "$Kind": "ComplexType",
+      "Email": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      },
+      "Phone": {
+        "$Type": "Edm.String",
+        "$Nullable": true
+      },
+      "Address": {
+        "$Type": "UniversityModel.Address",
+        "$Nullable": false
+      }
+    },
+    "Student": {
+      "$Kind": "EntityType",
+      "$Key": ["StudentID"],
+      "StudentID": {
+        "$Type": "Edm.Int32",
+        "$Nullable": false
+      },
+      "FirstName": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      },
+      "LastName": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      },
+      "EnrollmentDate": {
+        "$Type": "Edm.DateTimeOffset",
+        "$Nullable": false
+      },
+      "GPA": {
+        "$Type": "Edm.Decimal",
+        "$Scale": 2,
+        "$Precision": 3,
+        "$Nullable": true
+      },
+      "Status": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      },
+      "Contact": {
+        "$Type": "UniversityModel.ContactInfo",
+        "$Nullable": false
+      },
+      "Courses": {
+        "$Kind": "NavigationProperty",
+        "$Type": "Collection(UniversityModel.Course)"
+      },
+      "Department": {
+        "$Kind": "NavigationProperty",
+        "$Type": "UniversityModel.Department"
+      }
+    },
+    "Course": {
+      "$Kind": "EntityType",
+      "$Key": ["CourseID"],
+      "CourseID": {
+        "$Type": "Edm.Int32",
+        "$Nullable": false
+      },
+      "Title": {
+        "$Type": "Edm.String",
+        "$Nullable": false,
+        "$MaxLength": 100
+      },
+      "Credits": {
+        "$Type": "Edm.Int32",
+        "$Nullable": false
+      },
+      "Level": {
+        "$Type": "Edm.Int32",
+        "$Nullable": false
+      },
+      "IsActive": {
+        "$Type": "Edm.Boolean",
+        "$Nullable": false
+      },
+      "Students": {
+        "$Kind": "NavigationProperty",
+        "$Type": "Collection(UniversityModel.Student)"
+      },
+      "Department": {
+        "$Kind": "NavigationProperty",
+        "$Type": "UniversityModel.Department"
+      }
+    },
+    "Department": {
+      "$Kind": "EntityType",
+      "$Key": ["DepartmentID"],
+      "DepartmentID": {
+        "$Type": "Edm.Int32",
+        "$Nullable": false
+      },
+      "Name": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      },
+      "Budget": {
+        "$Type": "Edm.Decimal",
+        "$Scale": 2,
+        "$Nullable": false
+      },
+      "StartDate": {
+        "$Type": "Edm.Date",
+        "$Nullable": false
+      },
+      "Courses": {
+        "$Kind": "NavigationProperty",
+        "$Type": "Collection(UniversityModel.Course)"
+      },
+      "Students": {
+        "$Kind": "NavigationProperty",
+        "$Type": "Collection(UniversityModel.Student)"
+      }
+    }
+  }
+} 

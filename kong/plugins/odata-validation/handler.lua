@@ -1,4 +1,3 @@
-local BasePlugin = require "kong.plugins.base_plugin"
 local cjson = require "cjson.safe"
 local xmlua = require "xmlua"
 

@@ -40,7 +40,7 @@ function ODataValidationHandler:access(conf)
 end
 
 -- Function to validate the request against the OData specification
-function ODataValidationHandler:validate_odata_request(request_body, odata_specification)
+function ODataValidationHandler:validate_odata_request(request_body, odata_specification, conf)
   -- Parse the OData specification
   local spec, err = self:parse_odata_specification(odata_specification)
   if err or not spec or #spec == 0 then
@@ -75,36 +75,30 @@ function ODataValidationHandler:find_matching_entity_type(request_body, spec)
   for _, entity in ipairs(spec) do
     if not entity.IsComplexType then  -- Only consider entity types, not complex types
       local match_score = 0
-      local required_properties = {}
-
-      -- Count matching properties and collect required properties
+      
+      -- Count matching properties
       for _, prop in ipairs(entity.Properties) do
         if request_properties[prop.Name] then
           match_score = match_score + 1
         end
-        if prop.Required then
-          required_properties[prop.Name] = true
-        end
       end
 
-      -- Check if all required properties are present
-      local has_all_required = true
-      for prop_name, _ in pairs(required_properties) do
-        if not request_properties[prop_name] then
-          has_all_required = false
-          break
-        end
-      end
-
-      -- Update best match if this entity type has a better score and all required properties
-      if has_all_required and match_score > best_match_score then
+      -- Update best match if this entity type has a better score
+      -- We're no longer checking required properties here
+      if match_score > best_match_score then
         best_match = entity
         best_match_score = match_score
       end
     end
   end
 
-  return best_match
+  -- If we found a match with at least one matching property
+  if best_match and best_match_score > 0 then
+    kong.log.debug("Found potential entity type match: ", best_match.Name, " with ", best_match_score, " matching properties")
+    return best_match
+  end
+
+  return nil
 end
 
 -- Function to validate an entity against its type definition

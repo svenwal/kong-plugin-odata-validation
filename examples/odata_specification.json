@@ -1,0 +1,22 @@
+{
+  "$Version": "4.01",
+  "$Reference": {},
+  "ExampleModel": {
+    "Person": {
+      "$Kind": "EntityType",
+      "$Key": ["ID"],
+      "ID": {
+        "$Type": "Edm.Int32",
+        "$Nullable": false
+      },
+      "Name": {
+        "$Type": "Edm.String",
+        "$Nullable": false
+      },
+      "Age": {
+        "$Type": "Edm.Int32",
+        "$Nullable": true
+      }
+    }
+  }
+} 

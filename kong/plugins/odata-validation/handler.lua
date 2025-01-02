@@ -6,6 +6,45 @@ local ODataValidationHandler = {
     VERSION = "0.1",
 }
 
+-- Add to the top with other local declarations
+local enum_types = {}
+
+-- Add basic_type_mapping as a local variable at the top
+local basic_type_mapping = {
+  ["Edm.Int32"] = "number",
+  ["Edm.Int64"] = "number",
+  ["Edm.String"] = "string",
+  ["Edm.Decimal"] = "number",
+  ["Edm.Single"] = "number",
+  ["Edm.Double"] = "number",
+  ["Edm.Boolean"] = "boolean",
+  ["Edm.Date"] = "string",
+  ["Edm.DateTimeOffset"] = "string",
+  ["Edm.Guid"] = "string",
+  ["Edm.Duration"] = "string",
+  ["Edm.GeographyPoint"] = "table"
+}
+
+-- Add numeric type validation function
+function ODataValidationHandler:validate_numeric_type(value, edmType)
+  if type(value) ~= "number" then
+    return false
+  end
+
+  -- Validate number ranges
+  if edmType == "Edm.Int32" then
+    return value >= -2147483648 and value <= 2147483647 and math.floor(value) == value
+  elseif edmType == "Edm.Int64" then
+    -- Lua numbers can safely represent integers up to 2^53
+    return math.floor(value) == value
+  elseif edmType == "Edm.Single" or edmType == "Edm.Double" or edmType == "Edm.Decimal" then
+    -- Allow any number for floating point types
+    return true
+  end
+
+  return true
+end
+
 function ODataValidationHandler:access(conf)
   -- Capture request metadata and body
   local request_method = kong.request.get_method()
@@ -155,17 +194,39 @@ function ODataValidationHandler:validate_entity(value, entityType, spec)
       end
     else
       -- Handle regular and complex type properties
-      local expectedType = self:map_odata_type_to_lua(property.Type, entityType.Namespace)
-      if type(propValue) ~= expectedType then
-        kong.log.err("Field type mismatch for ", property.Name, ": expected ", property.Type, ", got ", type(propValue))
-        return false, "Field " .. property.Name .. " must be of type " .. property.Type
-      end
-
-      -- If it's a complex type, validate its structure
-      if expectedType == "table" then
+      if not basic_type_mapping[property.Type] then
         local valid, err = self:validate_complex_value(propValue, property.Type, spec)
         if not valid then
           return false, err
+        end
+      else
+        -- Get expected Lua type
+        local expectedType = basic_type_mapping[property.Type]
+        local valueType = type(propValue)
+
+        -- Special handling for numeric types
+        if property.Type:match("^Edm%.Int%d+$") or 
+           property.Type == "Edm.Decimal" or 
+           property.Type == "Edm.Single" or 
+           property.Type == "Edm.Double" then
+          if valueType ~= "number" then
+            kong.log.err("Field type mismatch for ", property.Name, ": expected number, got ", valueType)
+            return false, "Field " .. property.Name .. " must be a number"
+          end
+          
+          -- Additional validation for integer types
+          if property.Type:match("^Edm%.Int%d+$") then
+            if not self:validate_numeric_type(propValue, property.Type) then
+              kong.log.err("Invalid integer value for ", property.Name)
+              return false, "Field " .. property.Name .. " must be a valid integer"
+            end
+          end
+        else
+          -- Regular type validation for non-numeric types
+          if valueType ~= expectedType then
+            kong.log.err("Field type mismatch for ", property.Name, ": expected ", expectedType, ", got ", valueType)
+            return false, "Field " .. property.Name .. " must be of type " .. property.Type
+          end
         end
       end
     end
@@ -178,7 +239,26 @@ end
 
 -- Function to validate a complex value against its type
 function ODataValidationHandler:validate_complex_value(value, typeName, spec)
-  -- Find the type definition
+  -- Check if it's an enum type
+  if enum_types[typeName] then
+    if type(value) ~= "string" then
+      kong.log.err("Enum value must be a string for type ", typeName)
+      return false, "Value must be a string enum value"
+    end
+    
+    -- Check if the value is valid for this enum
+    if not enum_types[typeName].values[value] then
+      local valid_values = {}
+      for val, _ in pairs(enum_types[typeName].values) do
+        table.insert(valid_values, val)
+      end
+      kong.log.err("Invalid enum value for type ", typeName, ": ", value)
+      return false, "Value must be one of: " .. table.concat(valid_values, ", ")
+    end
+    return true
+  end
+
+  -- Find the type definition for complex types
   local typeEntity
   for _, entity in ipairs(spec) do
     if entity.Name == typeName:match("([^%.]+)$") then
@@ -198,16 +278,6 @@ end
 
 -- Function to map OData types to Lua types
 function ODataValidationHandler:map_odata_type_to_lua(odata_type, namespace)
-  -- Basic EDM type mappings
-  local basic_type_mapping = {
-    ["Edm.Int32"] = "number",
-    ["Edm.String"] = "string",
-    ["Edm.Decimal"] = "number",
-    ["Edm.Boolean"] = "boolean",
-    ["Edm.Date"] = "string",
-    ["Edm.DateTimeOffset"] = "string"
-  }
-
   -- Check if it's a collection type
   if odata_type:match("^Collection%(.*%)$") then
     return "table"
@@ -270,6 +340,23 @@ function ODataValidationHandler:parse_json_specification(json_spec)
     -- Process schema definitions
     for namespace, schema in pairs(parsed_json) do
         if type(schema) == "table" and namespace ~= "$Version" and namespace ~= "$Reference" then
+            -- First process enum types
+            for typename, typedef in pairs(schema) do
+                if type(typedef) == "table" and typedef["$Kind"] == "EnumType" then
+                    local fullName = namespace .. "." .. typename
+                    enum_types[fullName] = {
+                        values = {}
+                    }
+
+                    -- Process enum members
+                    for memberName, memberDef in pairs(typedef) do
+                        if type(memberDef) == "table" and memberDef["$Value"] then
+                            enum_types[fullName].values[memberName] = memberDef["$Value"]
+                        end
+                    end
+                end
+            end
+
             -- First process complex types
             for typename, typedef in pairs(schema) do
                 if type(typedef) == "table" and typedef["$Kind"] == "ComplexType" then
@@ -362,6 +449,23 @@ function ODataValidationHandler:parse_xml_specification(xml_spec)
     for _, schema in ipairs(schemas) do
         local namespace = schema:get_attribute("Namespace")
         kong.log.debug("Processing schema with namespace: ", namespace)
+
+        -- First process EnumTypes
+        local enumTypes = schema:search("*[local-name()='EnumType']")
+        for _, enumType in ipairs(enumTypes) do
+            local enumName = enumType:get_attribute("Name")
+            local fullName = namespace .. "." .. enumName
+            enum_types[fullName] = {
+                values = {}
+            }
+
+            local members = enumType:search("*[local-name()='Member']")
+            for _, member in ipairs(members) do
+                local memberName = member:get_attribute("Name")
+                local memberValue = member:get_attribute("Value")
+                enum_types[fullName].values[memberName] = memberValue or #enum_types[fullName].values
+            end
+        end
 
         -- First process ComplexTypes
         local complexTypes = schema:search("*[local-name()='ComplexType']")
